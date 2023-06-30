@@ -16,6 +16,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Shell;
 namespace MacroChain {
     public sealed unsafe class MacroChain : IDalamudPlugin {
 
+        // Plugin services
         [PluginService] public static CommandManager CommandManager { get; private set; } = null!;
         [PluginService] public static Framework Framework { get; private set; } = null!;
 
@@ -29,11 +30,12 @@ namespace MacroChain {
         private Hook<MacroCallDelegate> macroCallHook;
         
         public MacroChain() {
+            // Set up hook and command handlers
             macroCallHook = Hook<MacroCallDelegate>.FromAddress(new IntPtr(RaptureShellModule.MemberFunctionPointers.ExecuteMacro), MacroCallDetour);
             macroCallHook?.Enable();
 
             CommandManager.AddHandler("/nextmacro", new Dalamud.Game.Command.CommandInfo(OnMacroCommandHandler) {
-                HelpMessage = "Executes the next macro.",
+                HelpMessage = "Executes the next macro. Add number to to specify which macro to run next",
                 ShowInHelp = true
             });
             CommandManager.AddHandler("/runmacro", new Dalamud.Game.Command.CommandInfo(OnRunMacroCommand) {
@@ -44,6 +46,7 @@ namespace MacroChain {
             Framework.Update += FrameworkUpdate;
         }
 
+        // Clean up hook and command handlers
         public void Dispose() {
             CommandManager.RemoveHandler("/nextmacro");
             CommandManager.RemoveHandler("/runmacro");
@@ -56,14 +59,21 @@ namespace MacroChain {
         private RaptureMacroModule.Macro* lastExecutedMacro = null;
         private RaptureMacroModule.Macro* nextMacro = null;
         private RaptureMacroModule.Macro* downMacro = null;
+        private RaptureMacroModule.Macro* specificMacro = null;
         private readonly Stopwatch paddingStopwatch = new Stopwatch();
 
         private void MacroCallDetour(RaptureShellModule* raptureShellModule, RaptureMacroModule.Macro* macro) {
             macroCallHook?.Original(raptureShellModule, macro);
+            // Check if macro is locked
             if (RaptureShellModule.Instance->MacroLocked) return;
+
+            // Update exekcuted macro and get the next and down macro values
             lastExecutedMacro = macro;
             nextMacro = null;
             downMacro = null;
+            specificMacro = null;
+
+            //ignore specific macros
             if (lastExecutedMacro == RaptureMacroModule.Instance->Individual[99] || lastExecutedMacro == RaptureMacroModule.Instance->Shared[99]) {
                 return;
             }
@@ -76,6 +86,7 @@ namespace MacroChain {
             }
 
             downMacro = macro + 10;
+            specificMacro = macro;
         }
         
         public void OnMacroCommandHandler(string command, string args) {
@@ -84,27 +95,45 @@ namespace MacroChain {
                     Chat.PrintError("No macro is running.");
                     return;
                 }
-
-                if (args.ToLower() == "down") {
+                
+                if (args.ToLower() == "down") 
+                {
                     if (downMacro != null) {
                         RaptureShellModule.Instance->MacroLocked = false;
                         RaptureShellModule.Instance->ExecuteMacro(downMacro);
                     } else
                         Chat.PrintError("Can't use `/nextmacro down` on macro 90+");
-                } else {
-                    if (nextMacro != null) {
-                        RaptureShellModule.Instance->MacroLocked = false;
-                        RaptureShellModule.Instance->ExecuteMacro(nextMacro);
-                    } else
-                        Chat.PrintError("Can't use `/nextmacro` on macro 99.");
+                } 
+                else 
+                {
+                    if (!(string.IsNullOrWhiteSpace(args)))
+                    {   
+                        if (int.TryParse(args, out int num) || num >=0 || num <= 99 || specificMacro != null)
+                        {
+                            RaptureShellModule.Instance->MacroLocked = false;
+                            RaptureShellModule.Instance->ExecuteMacro(specificMacro);                        
+                        } else
+                            Chat.PrintError("Number must be between [0;99]");
+                    }
+
+                    else
+                    {
+                        if (nextMacro != null) {
+                            RaptureShellModule.Instance->MacroLocked = false;
+                            RaptureShellModule.Instance->ExecuteMacro(nextMacro);
+                        } else
+                            Chat.PrintError("Can't use `/nextmacro` on macro 99.");
+                        }
                 }
-                RaptureShellModule.Instance->MacroLocked = false;
+                    
+              RaptureShellModule.Instance->MacroLocked = false;
                 
             } catch (Exception ex) {
                 PluginLog.LogError(ex.ToString());
             }
         }
 
+        // Check that the macro is running and handle padding
         public void FrameworkUpdate(Framework framework) {
             if (lastExecutedMacro == null) return;
             if (ClientState == null) return;

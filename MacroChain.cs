@@ -67,7 +67,7 @@ namespace MacroChain {
             // Check if macro is locked
             if (RaptureShellModule.Instance->MacroLocked) return;
 
-            // Update exekcuted macro and get the next and down macro values
+            // Update executed macro and get the next and down macro values
             lastExecutedMacro = macro;
             nextMacro = null;
             downMacro = null;
